@@ -1,0 +1,57 @@
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Secrets (never commit)
+.env
+.env.*
+!.env.example
+.Renviron
+Renviron
+*credentials*.json
+token.json
+service-account*.json
+*.pem
+somecommands*.txt
+
+# Data, models, build artifacts (fetch via scripts / Releases)
+data/
+*.joblib
+*.pt
+*.pth
+*.npz
+*.npy
+*.parquet
+*.zip
+*.gz
+.terraform/
+*.tfstate*
+*.log
+
+# Protected / derived data (Bridge2AI-Voice DUA, SVD): never commit
+features/
+phenotype/
+tc_dann_results/
+tc_dann_cache/
+checkpoints/
+artifacts/
+sessions/
+test_data/
+outputs/
+svd_out/
+*.csv
+*.tsv
+*.pkl
+*.wav
+*.nsp
+*.egg
