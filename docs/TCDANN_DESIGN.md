@@ -54,7 +54,7 @@ confidence = a·x + b·y − c·z + d·m + e·p
 Each term has a specific clinical meaning:
 
 **x, Subgroup cosine similarity** (weight: 0.25 physical, 0.15 psychiatric)
-The input sample is compared to the top-10 nearest training examples from the predicted disease subgroup. High x means the model is in familiar territory. Low x means it is extrapolating. This is distributional shift detection built directly into the output. A model that achieves 0.93 AUROC on familiar patients but is presented with an outlier will now report lower confidence rather than the same number.
+The input sample is compared to the top-10 nearest training examples from the predicted disease subgroup. High x means the model is in familiar territory. Low x means it is extrapolating. This is distributional shift detection built directly into the output. A model that performs well on familiar patients but is presented with an outlier will now report lower confidence rather than the same number.
 
 Sparse subgroups (fewer than 10 training examples) receive a neutral x of 0.5 rather than a near-zero score driven by noise. Small oncological subgroups like precancerous lesions were falsely penalised by the old approach.
 

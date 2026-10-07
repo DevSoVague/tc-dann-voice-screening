@@ -351,8 +351,8 @@ kubectl get jobs
 
 Expected log output per pod:
 ```
-[epoch 00] loss_d=0.693 grl_lambda=0.00 macro_auroc=0.512 worst_sub=0.498
-[epoch 01] loss_d=0.641 grl_lambda=0.12 macro_auroc=0.671 worst_sub=0.603
+[epoch 00] loss_d=... grl_lambda=... macro_auroc=... worst_sub=...
+[epoch 01] loss_d=... grl_lambda=... macro_auroc=... worst_sub=...
 ...
 ```
 

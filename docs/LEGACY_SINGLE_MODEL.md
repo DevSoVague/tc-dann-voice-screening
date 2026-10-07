@@ -2,7 +2,7 @@
 
 **Task-Conditioned, Domain-Adversarial Network for Bridge2AI-Voice.**
 
-Constructive follow-up to the Member 2 Confounder & Shortcut Audit (March 23, 2026). Designed to defeat the specific shortcuts identified in that audit and to emit calibrated, subgroup-aware, abstainable confidence scores.
+Constructive follow-up to the Confounder & Shortcut Audit (`audit/confounder_analysis.py`). Designed to defeat the specific shortcuts identified in that audit and to emit calibrated, subgroup-aware, abstainable confidence scores.
 
 This build is wired to the Bridge2AI-Voice v3.0.0 public-release folder layout. **You do not need to edit any of the Python files.**
 
@@ -10,7 +10,7 @@ This build is wired to the Bridge2AI-Voice v3.0.0 public-release folder layout. 
 
 ## 1. What this is, in one paragraph
 
-The audit showed that a non-acoustic logistic regression on demographics plus a task histogram already reaches macro AUROC 0.82 (Tier 1) and 0.87 (Tier 2), and that the same main-model checkpoint drops up to 0.455 AUROC between Protocol A and Protocol B. MARVEL's near-perfect psychiatric AUROC is a cohort-identity artefact. TC-DANN is built to make those shortcuts unusable at training time: task is a conditioning input (not something to infer from which-recordings-exist), site / age / sex are stripped by gradient-reversal adversaries, and the output layer abstains when confidence is not clinically actionable.
+The audit showed that a non-acoustic logistic regression on demographics plus a task histogram can already predict many disease labels, and that the same checkpoint can behave very differently between Protocol A and Protocol B. MARVEL's psychiatric performance is largely a cohort-identity artefact. TC-DANN is built to make those shortcuts unusable at training time: task is a conditioning input (not something to infer from which-recordings-exist), site / age / sex are stripped by gradient-reversal adversaries, and the output layer abstains when confidence is not clinically actionable.
 
 ## 2. Expected folder layout
 
@@ -77,7 +77,7 @@ Checkpoints land in `checkpoints/` plus the three `split_{train,val,test}.parque
 python run.py eval --ckpt_dir checkpoints/
 ```
 
-Writes `eval_out/four_criteria.json` and prints a pass/fail summary per criterion. Criteria C1, C3, C4 are all computed from the checkpoints and the internal test split. Criterion C2 (Protocol A vs Protocol B) will appear as empty unless you plug in your team's existing protocol-split code into the two dicts marked `protA_auroc` / `protB_auroc` in `run.py::cmd_eval`. That is the one remaining integration point because Protocol B requires your group's cohort-construction logic, which is team-specific.
+Writes `eval_out/four_criteria.json` and prints a pass/fail summary per criterion. Criteria C1, C3, C4 are all computed from the checkpoints and the internal test split. Criterion C2 (Protocol A vs Protocol B) will appear as empty unless you plug in your own protocol-split code into the two dicts marked `protA_auroc` / `protB_auroc` in `run.py::cmd_eval`. That is the one remaining integration point because Protocol B requires external cohort-construction logic that is not included here.
 
 ## 5. What each file does
 
@@ -98,10 +98,10 @@ Writes `eval_out/four_criteria.json` and prints a pass/fail summary per criterio
 | Audit finding | Design response |
 |---|---|
 | Task-histogram shortcut (audit 2.2) | Per-recording training + explicit task-ID embedding. Task information is an input, not a signal to infer. |
-| Country gap, Parkinson's USA 0.913 vs Canada 0.487 (audit 2.4) | Gradient-reversal head against site, weight 1.0. Cross-site mixup. |
-| Age gap, psych_history 71+ = 0.189 (audit 2.4) | Gradient-reversal head against age bucket + subgroup-balanced sampler. |
-| Sex gap, PTSD F 0.533 vs M 0.832 (audit 2.4) | Gradient-reversal head against sex + subgroup-balanced sampler. |
-| Fusion conflict, ADHD 427313 (update Slide 18) | Four-branch fusion instead of six. No MFCC, no PPG. |
+| Country gap on Parkinson's (audit 2.4) | Gradient-reversal head against site, weight 1.0. Cross-site mixup. |
+| Age gap on psych_history in the 71+ group (audit 2.4) | Gradient-reversal head against age bucket + subgroup-balanced sampler. |
+| Sex gap on PTSD (audit 2.4) | Gradient-reversal head against sex + subgroup-balanced sampler. |
+| Fusion conflict on ADHD | Four-branch fusion instead of six. No MFCC, no PPG. |
 | Psychiatric labels shortcut-dominated (audit 2.1, 2.3) | `DEPLOYABLE_DISEASES` vs `EXPLORATORY_DISEASES` scope split. Psychiatric labels are opt-in via `--include_exploratory`. |
 | MARVEL cannot be shown to outperform the confounder baseline on CI / PD (audit 2.1) | The four-criteria evaluator in `evaluate.py` makes confounder separation a first-class pass / fail, not a footnote. |
 
@@ -116,25 +116,15 @@ Raw sigmoid → deep-ensemble mean + std → group-conditional temperature scali
 
 Otherwise the model emits `abstain` with a reason code. This is what makes the score clinically actionable: the model refuses to answer where evidence is insufficient, rather than returning an overconfident wrong answer (which is the exact failure mode the audit caught on 71+ psychiatric patients).
 
-## 8. Expected numbers vs MARVEL
+## 8. Framing vs MARVEL
 
-This is important to set honestly so the framing is clear at the defense. TC-DANN is **not** expected to beat MARVEL on Protocol A macro AUROC on confounded diseases. MARVEL's advantage there is cohort-identity exploitation, which TC-DANN is specifically designed not to do.
-
-| Axis | MARVEL | TC-DANN (target) |
-|---|---|---|
-| Protocol A macro AUROC | ~0.97 | ~0.90-0.93 |
-| Protocol B macro AUROC | ~0.95 | ~0.88-0.92 |
-| Protocol gap | ~0.02 | ≤ 0.05 |
-| Confounder separation on Parkinson's | +0.04 (fails C1) | ≥ +0.10 (passes C1) |
-| Worst-subgroup AUROC, 71+ psychiatric | 1.00 (ceiling, shortcut) | abstain flagged |
-
-The story: TC-DANN trades internal benchmark ceiling for confounder-resistance, subgroup uniformity, and honest abstain behaviour. It is the first of the three models (MARVEL, original main model, TC-DANN) designed to pass the four-criteria framework on any disease.
+TC-DANN is not designed to beat MARVEL on Protocol A macro AUROC on confounded diseases. MARVEL's advantage there comes from cohort-identity exploitation, which TC-DANN is specifically designed not to do. The goal is confounder resistance, subgroup uniformity, and honest abstain behaviour, checked by the four-criteria framework.
 
 ## 9. Known integration points
 
-- **Protocol B AUROC.** `run.py::cmd_eval` has two empty dicts where your team's Protocol A / Protocol B AUROC values should be plugged in. Everything else runs end-to-end without edits.
+- **Protocol B AUROC.** `run.py::cmd_eval` has two empty dicts where your own Protocol A / Protocol B AUROC values should be plugged in. Everything else runs end-to-end without edits.
 - **Calibration split.** The conformal predictor and group-conditional temperature scaler want a dedicated calibration split (~10% of training data). The current `eval` command uses the ensemble mean directly, which is fine for the four-criteria check but leaves the abstain layer ungrounded. Fitting it is a ~20-line addition when you are ready.
-- **External transfer (C4).** Runs when you pass SVD / NeuroVoz / COUGHVID / MODMA recordings through the trained model with matching feature extraction. Not automated here because it depends on how your team stages those corpora.
+- **External transfer (C4).** Runs when you pass SVD / NeuroVoz / COUGHVID / MODMA recordings through the trained model with matching feature extraction. Not automated here because it depends on how those corpora are staged locally.
 
 ## 10. Citations
 
@@ -143,7 +133,7 @@ The story: TC-DANN trades internal benchmark ceiling for confounder-resistance, 
 - Romano, Y., Patterson, E., & Candès, E. (2019). Conformalized Quantile Regression. NeurIPS.
 - Piao et al. (2025). MARVEL. arXiv 2508.20717.
 - Bridge2AI-Voice v3.0.0 dataset documentation (b2aiprep).
-- Member 2 Confounder & Shortcut Audit (March 23, 2026).
+- Confounder & Shortcut Audit (`audit/confounder_analysis.py`).
 
 ---
 

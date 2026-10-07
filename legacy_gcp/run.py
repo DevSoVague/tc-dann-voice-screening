@@ -304,7 +304,7 @@ def cmd_eval(args):
     p_mean, p_std = ensemble_mean_std(ensemble_logits)
 
     # Protocol A/B AUROC placeholders: requires external protocol code.
-    # In your case, drop in your team's Protocol A / Protocol B split code
+    # Drop in your own Protocol A / Protocol B split code
     # and fill the two dicts below. Left empty -> C2 section of the report
     # will just be blank.
     protA_auroc: Dict[str, float] = {}

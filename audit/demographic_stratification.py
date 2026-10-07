@@ -1,5 +1,5 @@
 """
-Member 2: Demographic Stratification of MARVEL Errors
+Demographic Stratification of MARVEL Errors
 Bridge2AI-Voice v3.0.0
 
 Uses the handoff prediction CSVs + demographics to compute:
@@ -35,7 +35,7 @@ warnings.filterwarnings("ignore")
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
 # PREDICTIONS_DIR: patient-level prediction CSVs ({marvel,main}_tier{1,2}_{fair,unified}.csv)
-# produced by the team's benchmark models (not included in this repo).
+# produced by separate benchmark models (not included in this repo).
 HANDOFF = Path(os.environ["PREDICTIONS_DIR"])
 PHENO   = Path(os.environ["B2AI_DATA_ROOT"]) / "phenotype"
 OUT     = Path(os.environ.get("AUDIT_OUT_DIR", "outputs/audit"))

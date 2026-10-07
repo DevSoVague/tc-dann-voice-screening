@@ -1,6 +1,6 @@
 """
 VoxClinBench — Patient Voice AI Frontend (Extended)
-42-657 Projects in Biomedical AI · Carnegie Mellon University
+Carnegie Mellon University, Spring 2026
 
 Pages:
   1. Voice Assessment  — 5-stage patient flow (OG, unchanged)
@@ -1378,9 +1378,6 @@ def init_state():
         "cfg_chunk_overlap": 50,
         "cfg_embed_model":   "BGE (local · 1024-dim)",
         "cfg_gemini_api_key": "",
-        "cfg_use_gateway":   False,
-        "cfg_gateway_key":   "",
-        "cfg_gateway_url":   os.environ.get("AI_GATEWAY_URL", ""),
         "web_search_enabled": False,
         # ── Agent / chat ──────────────────────────────────────────────────
         "chat_history":       _load_chat(),
@@ -1404,31 +1401,8 @@ def init_state():
 init_state()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# GATEWAY / GEMINI / WEB-SEARCH PATCHERS  (from obesity_app_v2 pattern)
+# GEMINI / WEB-SEARCH PATCHERS
 # ══════════════════════════════════════════════════════════════════════════════
-
-def _patch_indexer_for_gateway(indexer_obj, model: str, gateway_key: str,
-                                gateway_url: str, word_count: int):
-    import anthropic as _ant
-    if not gateway_key or not gateway_key.strip():
-        raise ValueError(
-            "CMU AI Gateway enabled but no key provided. "
-            "Enter it in the sidebar under 'Gateway API key'."
-        )
-    JUDGE_MODEL = "claude-sonnet-4-20250514-v1:0"
-    def _gw_call(prompt: str, model_name: str = model) -> str:
-        client = _ant.Anthropic(api_key=gateway_key, base_url=gateway_url)
-        resp = client.messages.create(
-            model=model_name, max_tokens=max(1024, word_count * 2),
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return resp.content[0].text if resp.content else ""
-    indexer_obj._call_claude   = lambda prompt: _gw_call(prompt, JUDGE_MODEL)
-    indexer_obj._ensure_gemini = lambda: None
-    indexer_obj._gateway_call  = _gw_call
-    indexer_obj._use_gateway   = True
-    return indexer_obj
-
 
 def _patch_indexer_for_gemini(indexer_obj, model: str, gemini_key: str, word_count: int):
     if not gemini_key or not gemini_key.strip():
@@ -1449,7 +1423,6 @@ def _patch_indexer_for_gemini(indexer_obj, model: str, gemini_key: str, word_cou
         return str(content).strip()
     indexer_obj._call_claude   = _gem_call
     indexer_obj._ensure_gemini = lambda: None
-    indexer_obj._use_gateway   = False
     return indexer_obj
 
 
@@ -1800,21 +1773,15 @@ def _anthropic_call(prompt: str, system: str = "", max_tokens: int = 2000) -> st
 
     api_key     = (st.session_state.get("cfg_anthropic_key", "") or
                    os.environ.get("ANTHROPIC_API_KEY", ""))
-    use_gateway = st.session_state.get("cfg_use_gateway", False)
-    gateway_key = st.session_state.get("cfg_gateway_key", "")
-    gateway_url = st.session_state.get("cfg_gateway_url", os.environ.get("AI_GATEWAY_URL", ""))
     model_name  = st.session_state.get("agent_model", "claude-haiku-4-5")
 
-    if use_gateway and gateway_key:
-        client = _ant.Anthropic(api_key=gateway_key, base_url=gateway_url)
-        model_name = st.session_state.get("cfg_model", "claude-sonnet-4-20250514-v1:0")
-    elif api_key:
+    if api_key:
         client = _ant.Anthropic(api_key=api_key)
     else:
         raise ValueError(
             "No Anthropic API key found.\n"
             "Enter it in the 🔑 API Keys panel on this page, "
-            "set ANTHROPIC_API_KEY env var, or enable CMU AI Gateway in the sidebar."
+            "or set the ANTHROPIC_API_KEY env var."
         )
 
     kwargs: dict = {
@@ -1836,15 +1803,9 @@ def _anthropic_call_streaming(prompt: str, system: str = "", max_tokens: int = 3
         raise ImportError("anthropic package not installed. Run: pip install anthropic")
 
     api_key     = (st.session_state.get("cfg_anthropic_key", "") or os.environ.get("ANTHROPIC_API_KEY", ""))
-    use_gateway = st.session_state.get("cfg_use_gateway", False)
-    gateway_key = st.session_state.get("cfg_gateway_key", "")
-    gateway_url = st.session_state.get("cfg_gateway_url", os.environ.get("AI_GATEWAY_URL", ""))
     model_name  = st.session_state.get("agent_model", "claude-haiku-4-5")
 
-    if use_gateway and gateway_key:
-        client = _ant.Anthropic(api_key=gateway_key, base_url=gateway_url)
-        model_name = st.session_state.get("cfg_model", "claude-sonnet-4-20250514-v1:0")
-    elif api_key:
+    if api_key:
         client = _ant.Anthropic(api_key=api_key)
     else:
         raise ValueError("No Anthropic API key found.")
@@ -2262,7 +2223,7 @@ with st.sidebar:
         VoxClinBench
     </div>
     <div style="font-size:1.5rem;color:#607a8a;margin-top:4px;">
-        42-657 · CMU
+        Carnegie Mellon University
     </div>
     </div>
     """, unsafe_allow_html=True)
@@ -2289,86 +2250,48 @@ with st.sidebar:
 
     if st.session_state.sidebar_tab == "rag":
 
-        _sblabel("API Backend")
-        use_gw = st.checkbox(
-            "Use CMU AI Gateway",
-            value=st.session_state.cfg_use_gateway,
-            key="sb_use_gw",
-            help="Routes generation through the CMU Andrew AI Gateway."
+        _sblabel("Anthropic API Key (Agents)")
+        _ant_key_sb = st.text_input(
+            "Anthropic key", value=st.session_state.cfg_anthropic_key,
+            type="password", placeholder="Anthropic API key",
+            key="sb_ant_key", label_visibility="collapsed",
         )
-        st.session_state.cfg_use_gateway = use_gw
-
-        if use_gw:
-            gw_key = st.text_input(
-                "Gateway API key", value=st.session_state.cfg_gateway_key,
-                type="password", placeholder="sk-...",
-                key="sb_gw_key", label_visibility="collapsed",
-            )
-            st.session_state.cfg_gateway_key = gw_key
+        st.session_state.cfg_anthropic_key = _ant_key_sb
+        if _ant_key_sb:
+            os.environ["ANTHROPIC_API_KEY"] = _ant_key_sb
             st.markdown(
-                '<div style="font-size:.67rem;color:#02c39a;padding-bottom:4px;">✓ Key set</div>'
-                if gw_key else
-                '<div style="font-size:.67rem;color:#ef4444;padding-bottom:4px;">⚠ Key required</div>',
+                '<div style="font-size:.67rem;color:#02c39a;padding-bottom:4px;">✓ Key set</div>',
                 unsafe_allow_html=True,
             )
-            _sblabel("Generation Model")
-            GW_MODELS = ["claude-sonnet-4-20250514-v1:0","claude-haiku-4-5-20251001-v1:0",
-                         "claude-opus-4-20250514-v1:0","gemini-2.5-flash"]
-            if st.session_state.cfg_model not in GW_MODELS:
-                st.session_state.cfg_model = GW_MODELS[0]
-            st.session_state.cfg_model = st.selectbox(
-                "gw_model", GW_MODELS,
-                index=GW_MODELS.index(st.session_state.cfg_model),
-                label_visibility="collapsed",
-            )
+
+        _sblabel("RAG Generation Model")
+        GEM_MODELS = ["gemini-2.5-flash","gemini-2.5-pro","gemini-2.0-flash-lite"]
+        if st.session_state.cfg_model not in GEM_MODELS:
+            st.session_state.cfg_model = GEM_MODELS[0]
+        st.session_state.cfg_model = st.selectbox(
+            "gem_model", GEM_MODELS,
+            index=GEM_MODELS.index(st.session_state.cfg_model),
+            label_visibility="collapsed",
+        )
+        _gkey_env = (os.environ.get("GEMINI_API_KEY","") or
+                     os.environ.get("GOOGLE_API_KEY","") or
+                     st.session_state.cfg_gemini_api_key)
+        if _gkey_env:
             st.markdown(
-                '<div style="font-size:.63rem;color:#607a8a;padding-bottom:4px;">'
-                '🔒 Agent judge: Claude Sonnet</div>',
+                '<div style="font-size:.67rem;color:#02c39a;padding-bottom:4px;">✓ Gemini key ready</div>',
                 unsafe_allow_html=True,
             )
         else:
-            _sblabel("Anthropic API Key (Agents)")
-            _ant_key_sb = st.text_input(
-                "Anthropic key", value=st.session_state.cfg_anthropic_key,
-                type="password", placeholder="Anthropic API key",
-                key="sb_ant_key", label_visibility="collapsed",
+            st.markdown(
+                '<div style="font-size:.67rem;color:#f59e0b;padding-bottom:4px;">'
+                '⚠ Enter Gemini key in RAG Dev tab</div>',
+                unsafe_allow_html=True,
             )
-            st.session_state.cfg_anthropic_key = _ant_key_sb
-            if _ant_key_sb:
-                os.environ["ANTHROPIC_API_KEY"] = _ant_key_sb
-                st.markdown(
-                    '<div style="font-size:.67rem;color:#02c39a;padding-bottom:4px;">✓ Key set</div>',
-                    unsafe_allow_html=True,
-                )
-
-            _sblabel("RAG Generation Model")
-            GEM_MODELS = ["gemini-2.5-flash","gemini-2.5-pro","gemini-2.0-flash-lite"]
-            if st.session_state.cfg_model not in GEM_MODELS:
-                st.session_state.cfg_model = GEM_MODELS[0]
-            st.session_state.cfg_model = st.selectbox(
-                "gem_model", GEM_MODELS,
-                index=GEM_MODELS.index(st.session_state.cfg_model),
-                label_visibility="collapsed",
-            )
-            _gkey_env = (os.environ.get("GEMINI_API_KEY","") or
-                         os.environ.get("GOOGLE_API_KEY","") or
-                         st.session_state.cfg_gemini_api_key)
-            if _gkey_env:
-                st.markdown(
-                    '<div style="font-size:.67rem;color:#02c39a;padding-bottom:4px;">✓ Gemini key ready</div>',
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    '<div style="font-size:.67rem;color:#f59e0b;padding-bottom:4px;">'
-                    '⚠ Enter Gemini key in RAG Dev tab</div>',
-                    unsafe_allow_html=True,
-                )
 
         _sblabel("Tavily API Key (Agent Search)")
         _tav = st.text_input(
             "Tavily key", value=st.session_state.cfg_tavily_key,
-            type="password", placeholder="tvly-...",
+            type="password", placeholder="Tavily API key",
             key="sb_tav_key", label_visibility="collapsed",
         )
         st.session_state.cfg_tavily_key = _tav
@@ -2468,7 +2391,7 @@ def nav_bar():
     <div class="top-nav" style="color: white;">
       <div>
         <div class="nav-brand">VoxClinBench</div>
-        <div class="nav-sub">42-657 Projects in Biomedical AI &nbsp;|&nbsp; Carnegie Mellon University</div>
+        <div class="nav-sub">Carnegie Mellon University, Spring 2026</div>
       </div>
       <div id="nav-page-tabs" style="display:flex;align-items:center;gap:0.2rem;">
         {tabs_html}
@@ -3752,10 +3675,9 @@ def page_chat():
 
     # ── Inline API key inputs ─────────────────────────────────────────────────
     with st.expander("🔑 API Keys", expanded=not (
-        st.session_state.cfg_anthropic_key or os.environ.get("ANTHROPIC_API_KEY","") or
-        (st.session_state.cfg_use_gateway and st.session_state.cfg_gateway_key)
+        st.session_state.cfg_anthropic_key or os.environ.get("ANTHROPIC_API_KEY","")
     )):
-        k1, k2, k3 = st.columns(3)
+        k1, k2 = st.columns(2)
         with k1:
             _ant = st.text_input(
                 "Anthropic API key",
@@ -3771,27 +3693,12 @@ def page_chat():
             _tav = st.text_input(
                 "Tavily API key (optional)",
                 value=st.session_state.cfg_tavily_key,
-                type="password", placeholder="tvly-...",
+                type="password", placeholder="Tavily API key",
                 key="chat_tav_key",
                 help="Enables web search for each specialist agent.",
             )
             if _tav != st.session_state.cfg_tavily_key:
                 st.session_state.cfg_tavily_key = _tav
-        with k3:
-            _gw_toggle = st.checkbox(
-                "Use CMU AI Gateway instead",
-                value=st.session_state.cfg_use_gateway,
-                key="chat_gw_toggle",
-            )
-            st.session_state.cfg_use_gateway = _gw_toggle
-            if _gw_toggle:
-                _gw_key = st.text_input(
-                    "Gateway key", value=st.session_state.cfg_gateway_key,
-                    type="password", placeholder="sk-...",
-                    key="chat_gw_key", label_visibility="collapsed",
-                )
-                if _gw_key != st.session_state.cfg_gateway_key:
-                    st.session_state.cfg_gateway_key = _gw_key
 
     # ── Patient profile panel ─────────────────────────────────────────────────
     patient  = st.session_state.patient
@@ -3824,10 +3731,9 @@ def page_chat():
     ant_key = (st.session_state.cfg_anthropic_key or os.environ.get("ANTHROPIC_API_KEY",""))
     tav_key = st.session_state.cfg_tavily_key
     idx_ok  = st.session_state.indexer is not None
-    gw_ok   = st.session_state.cfg_use_gateway and st.session_state.cfg_gateway_key
 
-    llm_ok  = bool(ant_key or gw_ok)
-    llm_lbl = "CMU Gateway" if gw_ok else ("Anthropic" if ant_key else "No key")
+    llm_ok  = bool(ant_key)
+    llm_lbl = "Anthropic" if ant_key else "No key"
     rag_lbl = f"{st.session_state.index_stats.get('total_chunks',0)} chunks" if idx_ok else "No index"
     web_lbl = "Tavily" if tav_key else "No key (skipped)"
 
@@ -3842,10 +3748,10 @@ def page_chat():
     </div>
     """, unsafe_allow_html=True)
 
-    if not (ant_key or gw_ok):
+    if not ant_key:
         st.markdown(
             '<div class="warn-box">⚠ No LLM key found. Set ANTHROPIC_API_KEY in env, '
-            'enter it in the sidebar, or enable CMU AI Gateway.</div>',
+            'or enter it in the sidebar.</div>',
             unsafe_allow_html=True,
         )
 
@@ -3858,7 +3764,7 @@ def page_chat():
             "▶ Run Clinical Analysis",
             key="run_agents",
             use_container_width=True,
-            disabled=not (ant_key or gw_ok),
+            disabled=not ant_key,
         )
     with hint_col:
         st.markdown(
@@ -4030,21 +3936,12 @@ def page_chat():
                         final_q = active + f"\n\n[RESPONSE LENGTH: ~{wc} words]"
 
                         # Patch indexer backend
-                        if st.session_state.cfg_use_gateway and st.session_state.cfg_gateway_key:
-                            _patch_indexer_for_gateway(
-                                idx,
-                                model=st.session_state.cfg_model,
-                                gateway_key=st.session_state.cfg_gateway_key,
-                                gateway_url=st.session_state.cfg_gateway_url,
-                                word_count=wc,
-                            )
-                        else:
-                            _gkey = (st.session_state.cfg_gemini_api_key or
-                                     os.environ.get("GEMINI_API_KEY","") or
-                                     os.environ.get("GOOGLE_API_KEY",""))
-                            if _gkey:
-                                _patch_indexer_for_gemini(idx, model=st.session_state.cfg_model,
-                                                           gemini_key=_gkey, word_count=wc)
+                        _gkey = (st.session_state.cfg_gemini_api_key or
+                                 os.environ.get("GEMINI_API_KEY","") or
+                                 os.environ.get("GOOGLE_API_KEY",""))
+                        if _gkey:
+                            _patch_indexer_for_gemini(idx, model=st.session_state.cfg_model,
+                                                       gemini_key=_gkey, word_count=wc)
 
                         answer, sources = idx.query(
                             final_q,
@@ -4186,7 +4083,7 @@ def page_rag_dev():
                 typed_key = st.text_input(
                     "Gemini API key",
                     value=st.session_state.cfg_gemini_api_key,
-                    type="password", placeholder="AIza...",
+                    type="password", placeholder="Gemini API key",
                     key="rd_gemini_key",
                     help="Required for Gemini embeddings and Gemini chat mode.",
                 )
@@ -4212,7 +4109,7 @@ def page_rag_dev():
             )
 
     # BGE + Gemini chat key
-    if "BGE" in embed_choice and not st.session_state.cfg_use_gateway:
+    if "BGE" in embed_choice:
         _env_gkey = (os.environ.get("GEMINI_API_KEY","") or
                      os.environ.get("GOOGLE_API_KEY",""))
         if not _env_gkey:
@@ -4220,7 +4117,7 @@ def page_rag_dev():
             st.markdown("**Gemini Chat API Key** *(required for Clinical AI Q&A with RAG)*")
             _ck = st.text_input(
                 "Gemini API key for chat", value=st.session_state.cfg_gemini_api_key,
-                type="password", placeholder="AIza...", key="rd_gemini_chat",
+                type="password", placeholder="Gemini API key", key="rd_gemini_chat",
             )
             if _ck:
                 st.session_state.cfg_gemini_api_key = _ck

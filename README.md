@@ -4,19 +4,15 @@ Task-conditioned, domain-adversarial neural networks that screen for 20 voice-li
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
-![Confounder vulnerability: AUROC from demographics alone, per disease](assets/vulnerability_heatmap.png)
-
-*Confounder audit (aggregate, per disease): a logistic regression on demographics or the recording-task histogram alone, 5-fold participant-stratified, 833 participants.*
-
 > Research code only. Not a medical device, not clinically validated. No data, features, or trained weights are distributed in this repository.
 
 ## What it does
 
-- **Confounder audit first.** Shows that demographics alone reach 0.96 AUROC on cognitive impairment and 0.93 on Parkinson's, and that the recording-task histogram alone reaches 0.94 on Parkinson's (`audit/confounder_analysis.py`).
+- **Confounder audit first.** Measures how well demographics alone, or the recording-task histogram alone, can "predict" each disease label, exposing shortcuts before any acoustic model is trained (`audit/confounder_analysis.py`).
 - **Four domain-separated models** (Voice+Oncological, Neurological, Respiratory, Psychiatric) with FiLM task conditioning on every encoder layer and a gradient-reversal site adversary that pushes the 128-d representation to be site-invariant (`tcdann/run_tc_dann.py`).
-- **Audit as a gate.** Every disease head is reported against a task-only confounder baseline on the held-out split; in the latest run all 15 reported heads pass (acoustic AUROC above the confounder AUROC), with a mean held-out AUROC of 0.76.
+- **Audit as a gate.** Every disease head is reported against a task-only confounder baseline on the held-out split, and a head only passes if its acoustic AUROC clears the confounder AUROC by a margin.
 - **Transparent confidence score** per prediction: `conf = a·x + b·y - c·z + d·m + e·p` (subgroup cosine similarity, head probability, runner-up penalty, demographic prior, confounder robustness), with the demographic term forced to 0 for psychiatric heads.
-- **External check on the Saarbrücken Voice Database (SVD, German):** 6/6 evaluated diseases pass the confounder audit on held-out patients (ADHD 0.72 AUROC).
+- **External check on the Saarbrücken Voice Database (SVD, German):** the same confounder audit is rerun on held-out SVD patients (`svd/run_tc_dann_svd.py`).
 - **Serving:** FastAPI inference server (raw audio or features in, unified cross-model top-3 plus audit flags out) and Streamlit front ends, including a 5-stage screening app with a multi-agent clinical-reasoning layer (Claude, Gemini, Tavily, Milvus RAG).
 
 ## Architecture
@@ -45,9 +41,14 @@ git clone https://github.com/DevSoVague/tc-dann-voice-screening.git
 cd tc-dann-voice-screening
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # then edit paths; export them in your shell
 export B2AI_DATA_ROOT=/path/to/b2ai-voice/3.0.0
 ```
+
+Configuration is read from environment variables only:
+
+- Data and audit: `B2AI_DATA_ROOT`, `AUDIT_OUT_DIR`, `PREDICTIONS_DIR`, `SVD_OUT_ROOT`
+- Serving: `TC_DANN_BUNDLE_DIR`, `SESSIONS_DIR`, `TC_DANN_API`, `VOXCLIN_API`
+- Agentic app (optional): `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `TAVILY_API_KEY`, `MILVUS_URI`, `MILVUS_TOKEN`, `MILVUS_COLLECTION`
 
 Run the confounder audit, then train and evaluate TC-DANN:
 
@@ -90,40 +91,6 @@ This repository contains **code only**. No recordings, features, phenotype files
 
 Trained bundles (`*_model_best.joblib`, `*.pt`) are derived from the protected data and are not distributed; train your own after obtaining access.
 
-## Results
-
-Held-out test split (participant-level 80/20), latest local run of `run_tc_dann.py`. `margin` = TC-DANN AUROC minus the AUROC of a task-only confounder baseline on the same split.
-
-| Disease | Model | AUROC | Confounder AUROC | Margin |
-|---|---|---|---|---|
-| Precancerous lesions | Voice+Onco | 0.98 | 0.22 | 0.76 |
-| PTSD | Psychiatric | 0.91 | 0.59 | 0.31 |
-| Parkinson's disease | Neurological | 0.90 | 0.64 | 0.26 |
-| Airway stenosis | Respiratory | 0.89 | 0.63 | 0.26 |
-| ADHD | Psychiatric | 0.84 | 0.48 | 0.36 |
-| Bipolar disorder | Psychiatric | 0.81 | 0.34 | 0.47 |
-| Benign lesions | Voice+Onco | 0.76 | 0.51 | 0.25 |
-| Control | Voice+Onco | 0.76 | 0.46 | 0.29 |
-| Cognitive impairment | Neurological | 0.74 | 0.69 | 0.06 |
-| Laryngeal dystonia | Voice+Onco | 0.70 | 0.55 | 0.16 |
-| Vocal fold paralysis | Voice+Onco | 0.70 | 0.53 | 0.16 |
-| Chronic cough | Respiratory | 0.68 | 0.49 | 0.18 |
-| Muscle tension dysphonia | Voice+Onco | 0.67 | 0.58 | 0.10 |
-| Depression | Psychiatric | 0.57 | 0.49 | 0.09 |
-| Anxiety | Psychiatric | 0.55 | 0.47 | 0.07 |
-
-Reading it honestly: psychiatric heads beyond PTSD/ADHD/bipolar sit close to their confounder baseline, and cognitive impairment only clears it by 0.06 because positives in v3 come from a single site. The published MARVEL model (Piao et al., 2025) was used as a comparator; its encoder aligns better with clinical acoustic features (SPARC) than TC-DANN's, so TC-DANN is framed as passing the confounder bar, not as beating MARVEL.
-
-Demographic shortcut audit (`audit/confounder_analysis.py`, 833 participants, 5-fold participant-stratified):
-
-| Disease | Demographics only | Task histogram only |
-|---|---|---|
-| Cognitive impairment | 0.96 | 0.93 |
-| Parkinson's | 0.93 | 0.94 |
-| Precancerous | 0.83 | 0.63 |
-
-![Shortcut ablation by feature group](assets/ablation_barplot.png)
-
 ## Project structure
 
 ```
@@ -141,21 +108,17 @@ tc-dann-voice-screening/
 ├── svd/                    SVD preprocessing + external-validation runner
 ├── legacy_gcp/             earlier single-model TC-DANN (5-seed ensemble, conformal abstain, GKE)
 ├── docs/                   design notes, legacy README, GCP deployment guide
-├── assets/                 aggregate audit figures
-├── requirements.txt
-└── .env.example
+└── requirements.txt
 ```
 
 `legacy_gcp/` is an earlier variant (one transformer-fusion model, adversaries on site/age/sex, group temperature scaling and split-conformal abstention) containerized for parallel ensemble training on GKE H100 nodes; see [docs/LEGACY_SINGLE_MODEL.md](docs/LEGACY_SINGLE_MODEL.md) and [docs/GCP_DEPLOYMENT.md](docs/GCP_DEPLOYMENT.md). The final model in `tcdann/` replaced it.
 
-## Team & credits
+## Credits
 
-Built for **42-657 Projects in Biomedical AI**, Carnegie Mellon University (Spring 2026). Team: Devavrath Sandeep, Rayann Ramoutar, Shawn Xiang.
+Built by **Devavrath Sandeep** at Carnegie Mellon University, Spring 2026: EDA, the confounder and shortcut audit, modality ablation and explainability analysis, the TC-DANN model and confidence score, SVD external validation, and the inference API and front-end apps.
 
-- **Devavrath Sandeep** (this repository): EDA, the confounder and shortcut audit, modality ablation and explainability analysis, the TC-DANN model and confidence score, SVD external validation, and the inference API and front-end apps.
-- **Rayann Ramoutar and Shawn Xiang**: the VoxClinBench benchmark (benchmark package and evaluation protocol, cross-lingual transfer and fine-tuning analyses). That work, and the team's Bridge2AI-Voice baseline/MARVEL reproduction code, are not included here.
-- `audit/demographic_stratification.py` consumes patient-level predictions produced by the team's benchmark models; those files are not included.
-- Data: Bridge2AI-Voice consortium (PhysioNet) and the Saarbrücken Voice Database. Gradient reversal follows Ganin and Lempitsky (2015).
+- `audit/demographic_stratification.py` consumes patient-level predictions produced by separate benchmark models; those models and their prediction files are not included here.
+- Data: Bridge2AI-Voice consortium (PhysioNet) and the Saarbrücken Voice Database. Gradient reversal follows Ganin and Lempitsky (2015). MARVEL (Piao et al., 2025) was used as a comparator.
 
 ## License
 

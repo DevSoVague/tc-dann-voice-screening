@@ -62,16 +62,15 @@ Expected output:
 ```
 [calibrate] Loading ensemble...
 [calibrate] Selecting best ensemble members...
-  member 0: 7/9 diseases pass C1  gaps={parkinsons: 0.14, ...}
-  member 1: 8/9 diseases pass C1
+  member 0: k/N diseases pass C1  gaps={...}
   ...
-Best members (pass C1): [0, 1, 3, 4]
+Best members (pass C1): [...]
 [calibrate] Fitting GroupTemperatureScaler...
-  saved scaler.pt  temps range: 0.812 - 1.334
+  saved scaler.pt
 [calibrate] Fitting SplitConformalPredictor...
-  saved conformal.joblib  fitted cells: 89/216
+  saved conformal.joblib
 [calibrate] Computing support counts...
-  saved support_counts.joblib  shape: (12, 9)
+  saved support_counts.joblib
 [calibrate] Done. Artifacts written to artifacts/
 ```
 

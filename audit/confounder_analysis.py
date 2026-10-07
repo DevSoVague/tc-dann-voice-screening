@@ -1,5 +1,5 @@
 """
-Member 2: Confounder & Shortcut Analysis
+Confounder & Shortcut Analysis
 Bridge2AI-Voice v3.0.0
 
 Produces:
