@@ -54,3 +54,8 @@ svd_out/
 *.wav
 *.nsp
 *.egg
+
+# Trained bundles stay local (Bridge2AI-Voice DUA); only the README is tracked
+models/*
+!models/README.md
+rag_index/

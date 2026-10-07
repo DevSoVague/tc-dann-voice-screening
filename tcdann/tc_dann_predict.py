@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Union, Optional
 
@@ -31,7 +33,7 @@ import torch
 from run_tc_dann import (
     TCDANN, MODEL_DISEASE_MAP, MODEL_DISPLAY,
     CS_PHYSICAL, CS_PSYCH, PSYCHIATRIC_NO_DEMO,
-    TASKS, TASK_ENC,
+    TASKS, TASK_ENC, load_bundle, bundle_preprocessors,
 )
 
 SAMPLE_RATE = 16_000
@@ -95,7 +97,7 @@ class _BundleLoader:
             return
 
         try:
-            b = joblib.load(path)
+            b = load_bundle(path)
             self.disease_cols = b["disease_cols"]
             self.feat_cols    = b["feat_cols"]
 
@@ -111,21 +113,8 @@ class _BundleLoader:
             self.model.load_state_dict(state)
             self.model.eval()
 
-            from sklearn.impute import SimpleImputer
-            imp = SimpleImputer(strategy="median")
-            imp.statistics_    = b["imputer_statistics"].copy()
-            imp.n_features_in_ = len(imp.statistics_)
-            imp._fit_dtype     = np.dtype(np.float32)
-            self.imputer = imp
-
-            from sklearn.preprocessing import StandardScaler
-            sc = StandardScaler()
-            sc.mean_           = b["scaler_mean"].copy()
-            sc.scale_          = b["scaler_std"].copy()
-            sc.var_            = sc.scale_ ** 2
-            sc.n_features_in_  = len(sc.mean_)
-            sc.n_samples_seen_ = np.array(1000, dtype=np.int64)
-            self.scaler = sc
+            # Rebuild imputer + scaler from the stored arrays (sklearn-version independent)
+            self.imputer, self.scaler = bundle_preprocessors(b)
 
             self.loaded = True
         except Exception as e:
@@ -193,11 +182,16 @@ def _extract_features_from_audio(audio_source, task_name: str) -> tuple[dict, li
     import torchaudio.transforms as T
 
     # Load waveform
-    if isinstance(audio_source, (str, Path)):
-        wav, sr = torchaudio.load(str(audio_source))
-    elif isinstance(audio_source, bytes):
-        import io
-        wav, sr = torchaudio.load(io.BytesIO(audio_source))
+    if isinstance(audio_source, (str, Path, bytes)):
+        raw = Path(audio_source).read_bytes() if not isinstance(audio_source, bytes) else audio_source
+        try:
+            import io
+            wav, sr = torchaudio.load(io.BytesIO(raw))
+        except (ImportError, RuntimeError):
+            # torchaudio >= 2.9 needs torchcodec to decode; use soundfile/librosa instead
+            from audio_preprocessing import _load_bytes_fallback
+            arr, sr = _load_bytes_fallback(raw)
+            wav = torch.from_numpy(arr).unsqueeze(0)
     elif isinstance(audio_source, np.ndarray):
         wav = torch.from_numpy(audio_source.astype(np.float32)).unsqueeze(0)
         sr  = SAMPLE_RATE
@@ -270,8 +264,8 @@ class TCDANNPredictor:
     and runs unified cross-model top-3 prediction on new audio.
     """
 
-    def __init__(self, bundle_dir: str | Path = "tc_dann_results"):
-        self.bundle_dir = Path(bundle_dir)
+    def __init__(self, bundle_dir: str | Path | None = None):
+        self.bundle_dir = Path(bundle_dir or DEFAULT_BUNDLE_DIR).expanduser()
         self._loaders: dict[str, _BundleLoader] = {}
 
         print(f"Loading TC-DANN models from {self.bundle_dir} ...")
@@ -283,6 +277,7 @@ class TCDANNPredictor:
 
         n_loaded = sum(1 for l in self._loaders.values() if l.loaded)
         print(f"\n{n_loaded}/4 models loaded on {DEVICE}\n")
+        self.n_loaded = n_loaded
 
     def predict(
         self,
@@ -351,16 +346,27 @@ class TCDANNPredictor:
         }
 
 
+DEFAULT_BUNDLE_DIR = Path(os.getenv(
+    "TC_DANN_BUNDLE_DIR", str(Path(__file__).resolve().parent.parent / "models")))
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TC-DANN voice inference")
     parser.add_argument("audio",       help="Path to audio file (WAV/MP3/etc.)")
-    parser.add_argument("--bundle_dir", default="tc_dann_results")
+    parser.add_argument("--bundle_dir", default=None,
+                        help="Folder with *_model_best.joblib (default: $TC_DANN_BUNDLE_DIR or <repo>/models)")
     parser.add_argument("--task",      default="prolonged-vowel",
                         choices=TASKS)
     args = parser.parse_args()
 
     predictor = TCDANNPredictor(args.bundle_dir)
+    if predictor.n_loaded == 0:
+        sys.exit(
+            f"No TC-DANN bundles found in {predictor.bundle_dir}. Trained weights are not "
+            "distributed (Bridge2AI-Voice / PhysioNet DUA). Train them with "
+            "`python tcdann/run_tc_dann.py --data_root $B2AI_DATA_ROOT --out_dir models` "
+            "or pass --bundle_dir / set TC_DANN_BUNDLE_DIR.")
     result    = predictor.predict(args.audio, task=args.task)
 
     print(f"\nTop disease  : {result['top_display']}")

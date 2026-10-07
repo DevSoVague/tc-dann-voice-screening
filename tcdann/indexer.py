@@ -286,10 +286,12 @@ class PDFIndexer:
     def _get_embedder(self):
         if self._embedder is None:
             from sentence_transformers import SentenceTransformer
-            self._embedder = SentenceTransformer(
-                "BAAI/bge-large-en-v1.5",
-                device="mps",  # Apple Silicon — change to "cpu" if you get errors
-        )
+            device = os.environ.get("EMBED_DEVICE", "")
+            if not device:
+                import torch
+                device = ("mps" if torch.backends.mps.is_available()
+                          else "cuda" if torch.cuda.is_available() else "cpu")
+            self._embedder = SentenceTransformer("BAAI/bge-large-en-v1.5", device=device)
         return self._embedder
 
     def set_output_language(self, language: str = "English") -> None:

@@ -107,8 +107,10 @@ The confounder baseline (logistic regression on task type) runs on the test spli
 
 ## Outputs
 
+Written to `--out_dir` (default `<data_root>/tc_dann_results/`; the API reads `models/` or `TC_DANN_BUNDLE_DIR`):
+
 ```
-tc_dann_results/
+<out_dir>/
   audit_table.csv              All diseases, all models, one row per disease
   audit_voice_onco.csv         Per-model audit split
   audit_neurological.csv

@@ -1,0 +1,73 @@
+# Indexed Job: 5 ensemble members trained in parallel, one GPU each.
+# Render with your project id, then apply:
+#   PROJECT_ID=$(gcloud config get-value project) envsubst '${PROJECT_ID}' < deploy/gke/train_jobs.yaml | kubectl apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tc-dann-train
+spec:
+  completions: 5
+  parallelism: 5
+  completionMode: Indexed
+  template:
+    spec:
+      serviceAccountName: tc-dann-ksa
+      restartPolicy: OnFailure
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      initContainers:
+        - name: download-data
+          image: google/cloud-sdk:slim
+          command:
+            - bash
+            - -c
+            - gcloud storage cp -r gs://tc-dann-data-${PROJECT_ID}/my_model/ /data/
+          volumeMounts:
+            - name: data-volume
+              mountPath: /data
+      containers:
+        - name: trainer
+          image: us-central1-docker.pkg.dev/${PROJECT_ID}/tc-dann-repo/model:latest
+          args:
+            - "train"
+            - "--root_dir=/data/my_model"
+            - "--out_dir=/checkpoints/member_$(JOB_COMPLETION_INDEX)"
+            - "--epochs=40"
+            - "--ensemble_size=1"
+            - "--batch_size=32"
+            - "--num_workers=4"
+            - "--seed=$(JOB_COMPLETION_INDEX)"
+          env:
+            - name: JOB_COMPLETION_INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+              memory: "32Gi"
+            requests:
+              nvidia.com/gpu: "1"
+              memory: "24Gi"
+          volumeMounts:
+            - name: checkpoints
+              mountPath: /checkpoints
+            - name: data-volume
+              mountPath: /data
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: checkpoints
+          persistentVolumeClaim:
+            claimName: checkpoints-pvc
+        - name: data-volume
+          emptyDir:
+            sizeLimit: 100Gi
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi

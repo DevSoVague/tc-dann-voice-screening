@@ -109,13 +109,30 @@ def preprocess_audio_file(path: str | Path) -> dict:
 
 # ── Internal pipeline ─────────────────────────────────────────────────────────
 
+def _load_bytes_fallback(audio_bytes: bytes):
+    """Decode with soundfile (WAV/FLAC/OGG), then librosa/audioread for the rest."""
+    try:
+        import soundfile as sf
+        data, sr = sf.read(io.BytesIO(audio_bytes), dtype="float32", always_2d=True)
+        return data.mean(axis=1).astype(np.float32), int(sr)
+    except Exception:
+        import librosa as _lr
+        waveform, sr = _lr.load(io.BytesIO(audio_bytes), sr=None, mono=True)
+        return waveform.astype(np.float32), int(sr)
+
+
 def _load_bytes(audio_bytes: bytes):
     """Load audio bytes → (waveform float32 numpy [samples], sr)."""
     if _BACKEND == "torchaudio":
-        buf = io.BytesIO(audio_bytes)
-        waveform, sr = torchaudio.load(buf)          # [C, N] float32 tensor
-        waveform = waveform.mean(dim=0).numpy()       # mono, [N]
-        return waveform.astype(np.float32), int(sr)
+        try:
+            buf = io.BytesIO(audio_bytes)
+            waveform, sr = torchaudio.load(buf)          # [C, N] float32 tensor
+            waveform = waveform.mean(dim=0).numpy()       # mono, [N]
+            return waveform.astype(np.float32), int(sr)
+        except (ImportError, RuntimeError):
+            # torchaudio >= 2.9 needs the separate torchcodec package for decoding;
+            # fall back to soundfile / librosa.
+            return _load_bytes_fallback(audio_bytes)
     else:
         buf = io.BytesIO(audio_bytes)
         waveform, sr = librosa.load(buf, sr=None, mono=True)

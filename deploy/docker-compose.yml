@@ -1,0 +1,26 @@
+# API + TC-DANN Streamlit app. Run from the repo root:
+#   docker compose -f deploy/docker-compose.yml up --build
+# Put the trained bundles in ./models (or change the volume source).
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports: ["8000:8000"]
+    volumes:
+      - ../models:/app/models:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      retries: 10
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["streamlit", "run", "tc_dann_app.py", "--server.port", "8501",
+              "--server.address", "0.0.0.0", "--server.headless", "true"]
+    environment:
+      TC_DANN_API: http://api:8000
+    ports: ["8501:8501"]
+    depends_on: [api]

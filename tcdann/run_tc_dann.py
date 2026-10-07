@@ -964,6 +964,10 @@ def main():
     parser.add_argument("--smoke_test", action="store_true")
     parser.add_argument("--cache_dir",  type=str,   default=None)
     parser.add_argument("--no_cache",   action="store_true")
+    parser.add_argument("--out_dir",    type=str,   default=None,
+                        help="Where to write *_model_best.joblib bundles and audit tables "
+                             "(default: <data_root>/tc_dann_results). Point the API at it "
+                             "with TC_DANN_BUNDLE_DIR, or use --out_dir models.")
     # Physical confidence weights
     parser.add_argument("--cs_a",  type=float, default=CS_PHYSICAL["a"],
                         help="Physical: x weight (subgroup cosine)")
@@ -1190,8 +1194,8 @@ def main():
                   f"p={r['p_confounder']:.3f})")
 
     # ── Save ──────────────────────────────────────────────────────────────────
-    out = data_root / "tc_dann_results"
-    out.mkdir(exist_ok=True)
+    out = Path(args.out_dir).expanduser() if args.out_dir else data_root / "tc_dann_results"
+    out.mkdir(parents=True, exist_ok=True)
 
     results.to_csv(out / "audit_table.csv",        index=False)
     unified_top3.to_csv(out / "top3_unified.csv",  index=False)
@@ -1231,5 +1235,56 @@ def main():
     print("\nDone.")
 
 
+class FrozenMedianImputer:
+    """Inference-only median imputer rebuilt from bundle["imputer_statistics"].
+
+    Avoids poking private attributes of sklearn's SimpleImputer, which change
+    between sklearn releases.
+    """
+    def __init__(self, statistics):
+        self.statistics_ = np.asarray(statistics, dtype=np.float32)
+
+    def transform(self, X):
+        X = np.array(X, dtype=np.float32, copy=True)
+        rows, cols = np.where(np.isnan(X))
+        X[rows, cols] = self.statistics_[cols]
+        return X
+
+
+class FrozenStandardScaler:
+    """Inference-only scaler rebuilt from bundle["scaler_mean"] / ["scaler_std"]."""
+    def __init__(self, mean, scale):
+        self.mean_  = np.asarray(mean, dtype=np.float32)
+        scale       = np.asarray(scale, dtype=np.float32)
+        self.scale_ = np.where(scale == 0, 1.0, scale).astype(np.float32)
+
+    def transform(self, X):
+        return (np.asarray(X, dtype=np.float32) - self.mean_) / self.scale_
+
+
+def bundle_preprocessors(bundle):
+    """Return (imputer, scaler) with a .transform() each, from a loaded bundle."""
+    return (FrozenMedianImputer(bundle["imputer_statistics"]),
+            FrozenStandardScaler(bundle["scaler_mean"], bundle["scaler_std"]))
+
+
+def load_bundle(path):
+    """Load a *_model_best.joblib bundle.
+
+    Bundles written by older runs pickled SubgroupCentroidIndex / DemographicIndex
+    under ``__main__`` (because run_tc_dann.py was executed as a script). Expose the
+    classes on ``__main__`` so those bundles unpickle from any entry point
+    (uvicorn, streamlit, CLI).
+    """
+    import __main__
+    for _cls in (SubgroupCentroidIndex, DemographicIndex):
+        if not hasattr(__main__, _cls.__name__):
+            setattr(__main__, _cls.__name__, _cls)
+    return joblib.load(path)
+
+
 if __name__ == "__main__":
-    main()
+    # Run through the importable module so new bundles pickle the index classes
+    # as run_tc_dann.SubgroupCentroidIndex rather than __main__.SubgroupCentroidIndex.
+    import run_tc_dann as _mod
+    _mod.main()

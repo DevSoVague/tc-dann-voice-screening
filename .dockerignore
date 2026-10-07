@@ -1,0 +1,12 @@
+.git
+.venv
+venv
+**/__pycache__
+models/*.joblib
+models/*.pt
+sessions/
+data/
+outputs/
+*.csv
+*.npz
+*.npy

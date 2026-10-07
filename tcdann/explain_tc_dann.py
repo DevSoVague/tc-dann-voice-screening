@@ -42,6 +42,7 @@ import sys
 import warnings
 from pathlib import Path
 from run_tc_dann import SubgroupCentroidIndex, DemographicIndex
+from run_tc_dann import load_bundle as _load_bundle_file, bundle_preprocessors
 
 warnings.filterwarnings("ignore")
 
@@ -120,7 +121,7 @@ def load_bundle(bundle_path: Path):
     The bundle stores weight arrays (not live sklearn objects) so we rebuild
     imputer and scaler manually.
     """
-    bundle = joblib.load(bundle_path)
+    bundle = _load_bundle_file(bundle_path)
 
     model = TCDANN(
         n_features = bundle["n_features"],
@@ -137,21 +138,8 @@ def load_bundle(bundle_path: Path):
     model.load_state_dict(state)
     model.eval()
 
-    # Reconstruct SimpleImputer (only .statistics_ needed for transform)
-    imputer = SimpleImputer(strategy="median")
-    imputer.statistics_    = bundle["imputer_statistics"].copy()
-    imputer.n_features_in_ = len(imputer.statistics_)
-
-    # 🔑 REQUIRED for newer sklearn
-    imputer._fit_dtype = np.dtype(np.float32)
-
-    # Reconstruct StandardScaler (mean_ + scale_ sufficient for transform)
-    scaler = StandardScaler()
-    scaler.mean_             = bundle["scaler_mean"].copy()
-    scaler.scale_            = bundle["scaler_std"].copy()
-    scaler.var_              = scaler.scale_ ** 2
-    scaler.n_features_in_    = len(scaler.mean_)
-    scaler.n_samples_seen_   = np.array(1000, dtype=np.int64)  # placeholder
+    # Rebuild imputer + scaler from the stored arrays (sklearn-version independent)
+    imputer, scaler = bundle_preprocessors(bundle)
 
     return model, bundle["feat_cols"], bundle["disease_cols"], imputer, scaler
 

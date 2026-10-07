@@ -16,8 +16,13 @@ Run:
     uvicorn tc_dann_api_server:app --reload --port 8000
 
 Environment:
-    TC_DANN_BUNDLE_DIR   path to tc_dann_results/   (contains *_model_best.joblib)
+    TC_DANN_BUNDLE_DIR   folder with the four *_model_best.joblib bundles
+                         (default: <repo>/models/)
     SESSIONS_DIR         path for session JSON files (default: sessions/)
+
+If no bundles are found the server still starts: /health reports
+status "no_models" and the prediction endpoints return HTTP 503 with a
+message explaining how to obtain or train the weights.
 """
 
 from __future__ import annotations
@@ -47,7 +52,7 @@ try:
         TCDANN, MODEL_DISEASE_MAP, MODEL_DISPLAY,
         CS_PHYSICAL, CS_PSYCH, PSYCHIATRIC_NO_DEMO,
         SubgroupCentroidIndex, DemographicIndex,
-        TASKS, TASK_ENC,
+        TASKS, TASK_ENC, load_bundle, bundle_preprocessors,
     )
     TC_DANN_AVAILABLE = True
 except ImportError as _e:
@@ -59,7 +64,8 @@ from audio_preprocessing import preprocess_audio_bytes
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
 log = logging.getLogger("tc_dann_api")
 
-BUNDLE_DIR   = Path(os.getenv("TC_DANN_BUNDLE_DIR",  "tc_dann_results"))
+_REPO_ROOT   = Path(__file__).resolve().parent.parent
+BUNDLE_DIR   = Path(os.getenv("TC_DANN_BUNDLE_DIR", str(_REPO_ROOT / "models"))).expanduser()
 SESSIONS_DIR = Path(os.getenv("SESSIONS_DIR",         "sessions"))
 SESSIONS_DIR.mkdir(exist_ok=True)
 DEVICE       = "cuda" if torch.cuda.is_available() else "cpu"
@@ -97,7 +103,7 @@ class _ModelBundle:
             log.warning(self.error)
             return False
         try:
-            b = joblib.load(path)
+            b = load_bundle(path)
             self.disease_cols = b["disease_cols"]
             self.feat_cols    = b["feat_cols"]
             self.n_sites      = b.get("n_sites", 2)
@@ -114,23 +120,8 @@ class _ModelBundle:
             self.model.load_state_dict(state)
             self.model.eval()
 
-            # Reconstruct imputer
-            from sklearn.impute import SimpleImputer
-            imp = SimpleImputer(strategy="median")
-            imp.statistics_    = b["imputer_statistics"].copy()
-            imp.n_features_in_ = len(imp.statistics_)
-            imp._fit_dtype     = np.dtype(np.float32)
-            self.imputer = imp
-
-            # Reconstruct scaler
-            from sklearn.preprocessing import StandardScaler
-            sc = StandardScaler()
-            sc.mean_           = b["scaler_mean"].copy()
-            sc.scale_          = b["scaler_std"].copy()
-            sc.var_            = sc.scale_ ** 2
-            sc.n_features_in_  = len(sc.mean_)
-            sc.n_samples_seen_ = np.array(1000, dtype=np.int64)
-            self.scaler = sc
+            # Rebuild imputer + scaler from the stored arrays (sklearn-version independent)
+            self.imputer, self.scaler = bundle_preprocessors(b)
 
             self.loaded = True
             log.info("Loaded %s  (%d diseases, %d features)", self.label, len(self.disease_cols), len(self.feat_cols))
@@ -155,6 +146,28 @@ def _get_bundle(stem: str) -> _ModelBundle:
 def _load_all_bundles():
     for stem in MODEL_STEMS:
         _get_bundle(stem)
+    n = sum(1 for b in _bundles.values() if b.loaded)
+    if n == 0:
+        log.warning(NO_MODELS_MSG)
+
+
+NO_MODELS_MSG = (
+    f"No TC-DANN model bundles were loaded from {BUNDLE_DIR}. Trained weights are not "
+    "distributed with this repository (they were trained on Bridge2AI-Voice under the "
+    "PhysioNet data use agreement). Train them with "
+    "`python tcdann/run_tc_dann.py --data_root $B2AI_DATA_ROOT --out_dir models` "
+    "or set TC_DANN_BUNDLE_DIR to a folder containing voice_onco_model_best.joblib, "
+    "neurological_model_best.joblib, respiratory_model_best.joblib and "
+    "psychiatric_model_best.joblib."
+)
+
+
+def _require_models():
+    """Raise a clean 503 (not a stack trace) when no weights are available."""
+    if not TC_DANN_AVAILABLE:
+        raise HTTPException(503, f"run_tc_dann.py not available: {_TC_DANN_IMPORT_ERROR}")
+    if not any(_get_bundle(s).loaded for s in MODEL_STEMS):
+        raise HTTPException(503, NO_MODELS_MSG)
 
 
 # ── Feature extraction from raw audio ────────────────────────────────────────
@@ -351,8 +364,12 @@ def health():
             "diseases": len(b.disease_cols) if b and b.loaded else 0,
             "error":    b.error if b and not b.loaded else "",
         }
+    n_loaded = sum(1 for v in bundle_status.values() if v["loaded"])
+    status = "ok" if n_loaded == len(MODEL_STEMS) else ("degraded" if n_loaded else "no_models")
     return {
-        "status":            "ok",
+        "status":            status,
+        "models_loaded":     n_loaded,
+        "message":           "" if n_loaded else NO_MODELS_MSG,
         "tc_dann_available": TC_DANN_AVAILABLE,
         "device":            DEVICE,
         "bundle_dir":        str(BUNDLE_DIR),
@@ -390,8 +407,7 @@ async def predict(
         all_ranked  all diseases sorted by confidence
         audit_flags quality + confounder flags
     """
-    if not TC_DANN_AVAILABLE:
-        raise HTTPException(503, f"run_tc_dann.py not available: {_TC_DANN_IMPORT_ERROR}")
+    _require_models()
 
     t0  = time.perf_counter()
     sid = session_id or str(uuid.uuid4())
@@ -441,8 +457,7 @@ async def predict_features(
     Pass a JSON string of {feature_name: value} matching feat_cols.
     Used by the SVD preprocessing pipeline and batch evaluation scripts.
     """
-    if not TC_DANN_AVAILABLE:
-        raise HTTPException(503, f"run_tc_dann.py not available: {_TC_DANN_IMPORT_ERROR}")
+    _require_models()
 
     t0  = time.perf_counter()
     sid = session_id or str(uuid.uuid4())
@@ -501,8 +516,7 @@ async def record_from_browser(
           const res = await fetch('/record', {method:'POST', body:fd});
         };
     """
-    if not TC_DANN_AVAILABLE:
-        raise HTTPException(503, "run_tc_dann.py not available")
+    _require_models()
 
     t0  = time.perf_counter()
     sid = session_id or str(uuid.uuid4())

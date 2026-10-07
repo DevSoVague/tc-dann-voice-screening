@@ -1,0 +1,11 @@
+# Training image for the legacy single-model variant (legacy_gcp/), used for the
+# parallel ensemble jobs on GKE described in docs/GCP_DEPLOYMENT.md.
+#   docker build -f deploy/gke/Dockerfile.train -t REGION-docker.pkg.dev/$PROJECT_ID/tc-dann-repo/model:latest .
+FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
+
+WORKDIR /app
+COPY deploy/gke/requirements-legacy.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY legacy_gcp/ /app/
+ENTRYPOINT ["python", "run.py"]

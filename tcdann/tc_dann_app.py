@@ -237,7 +237,12 @@ def _predict_audio(audio_bytes: bytes, task_name: str, patient_meta: dict) -> di
         },
         timeout=30,
     )
-    r.raise_for_status()
+    if r.status_code >= 400:
+        try:
+            detail = r.json().get("detail", r.text)
+        except Exception:
+            detail = r.text
+        raise RuntimeError(f"API returned {r.status_code}: {detail}")
     return r.json()
 
 
@@ -363,6 +368,14 @@ if "error" in health:
     st.error(f"API not reachable — is `uvicorn tc_dann_api_server:app --port 8000` running?\n\n{health['error']}")
 else:
     st.markdown(f'<div style="margin-bottom:1rem">{pills_html}</div>', unsafe_allow_html=True)
+    if health.get("status") == "no_models":
+        st.warning(
+            "The API is running but no trained TC-DANN bundles are loaded, so predictions "
+            "are disabled. Trained weights are not distributed with this repository "
+            "(Bridge2AI-Voice, PhysioNet data use agreement). Credentialed PhysioNet users "
+            "can train them with `python tcdann/run_tc_dann.py --data_root $B2AI_DATA_ROOT "
+            "--out_dir models` and restart the API, or set `TC_DANN_BUNDLE_DIR`."
+        )
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
 tab_record, tab_upload, tab_history, tab_about = st.tabs(
