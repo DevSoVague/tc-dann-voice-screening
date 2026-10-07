@@ -45,30 +45,20 @@ TASK_NAMES = [
 ]
 N_TASKS = len(TASK_NAMES)
 
-# Confounder AUROC values from the audit report (Table in Section 2.1)
-# Used when no trained baseline is available — returns these as heuristic estimates
-AUDIT_REPORT_AUROC = {
-    "cognitive_impairment": 0.958,
-    "parkinsons":           0.934,
-    "precancerous":         0.830,
-    "laryngeal_dystonia":   0.800,
-    "vf_paralysis":         0.796,
-    "ptsd":                 0.785,
-    "depression":           0.777,
-    "airway_stenosis":      0.775,
-    "benign_lesions":       0.770,
-    "laryngitis":           0.750,
-    "bipolar":              0.750,
-    "anxiety":              0.750,
-    "psychiatric_history":  0.740,
-    "chronic_cough":        0.740,
-    "mtd":                  0.740,
-    "adhd":                 0.729,
-    "copd_asthma":          0.670,
-    "glottic_insuff":       0.590,
-    "als":                  0.500,
-    "laryngeal_cancer":     0.500,
-}
+# Optional per-disease confounder AUROC priors for heuristic mode, loaded from a
+# JSON file ({task_name: auroc}) produced by your own run of audit/confounder_analysis.py.
+# Set CONFOUNDER_PRIORS_JSON to its path. Without it, a neutral 0.60 prior is used.
+def _load_audit_priors() -> dict:
+    import os
+    path = os.environ.get("CONFOUNDER_PRIORS_JSON", "")
+    if path and Path(path).is_file():
+        try:
+            return {str(k): float(v) for k, v in json.loads(Path(path).read_text()).items()}
+        except Exception as e:  # noqa: BLE001
+            log.warning("Could not read CONFOUNDER_PRIORS_JSON: %s", e)
+    return {}
+
+AUDIT_REPORT_AUROC = _load_audit_priors()
 
 # Shortcut flag threshold (Rec. 5.1: flag if confounder within 0.10 of model)
 SHORTCUT_GAP_THRESHOLD = 0.10
@@ -246,7 +236,7 @@ class ConfounderBaseline:
 
     def _predict_heuristic(self, vec: np.ndarray) -> dict[str, float]:
         """
-        Heuristic mode: return audit-report confounder AUROC as a fixed proxy.
+        Heuristic mode: return a confounder AUROC prior (from CONFOUNDER_PRIORS_JSON, else 0.60).
         Modulates slightly by age and country to give per-patient variation.
         """
         age_norm  = float(vec[0])   # 0-1

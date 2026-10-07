@@ -506,8 +506,6 @@ with tab_about:
     <div class="stat-row">
         <div class="stat-pill">20<span>diseases</span></div>
         <div class="stat-pill">4<span>clinical domains</span></div>
-        <div class="stat-pill">0.76<span>weighted AUROC</span></div>
-        <div class="stat-pill">15/15<span>audit passes</span></div>
         <div class="stat-pill">FC 512→256→128<span>per domain</span></div>
     </div>
     """, unsafe_allow_html=True)
@@ -551,8 +549,6 @@ with tab_about:
         "Feature":    ["jitter (local)", "alpha ratio V (norm)", "logRelF0-H1-A3",
                        "jitter (stddev)", "F2 std (loc)", "F0 falling slope",
                        "F1 bandwidth", "shimmer (local dB)", "spectral flux", "spectral skewness"],
-        "Mean |SHAP|": [0.0147, 0.0139, 0.0084, 0.0080, 0.0076,
-                        0.0075, 0.0074, 0.0066, 0.0060, 0.0059],
         "Interpretation": [
             "Cycle-to-cycle pitch irregularity — involuntary VF disruption",
             "Low/high freq energy balance — vocal tract resonance change",

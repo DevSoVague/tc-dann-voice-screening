@@ -46,7 +46,7 @@ export B2AI_DATA_ROOT=/path/to/b2ai-voice/3.0.0
 
 Configuration is read from environment variables only:
 
-- Data and audit: `B2AI_DATA_ROOT`, `AUDIT_OUT_DIR`, `PREDICTIONS_DIR`, `SVD_OUT_ROOT`
+- Data and audit: `B2AI_DATA_ROOT`, `AUDIT_OUT_DIR`, `PREDICTIONS_DIR`, `SVD_OUT_ROOT`, `CONFOUNDER_PRIORS_JSON` (optional)
 - Serving: `TC_DANN_BUNDLE_DIR`, `SESSIONS_DIR`, `TC_DANN_API`, `VOXCLIN_API`
 - Agentic app (optional): `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `TAVILY_API_KEY`, `MILVUS_URI`, `MILVUS_TOKEN`, `MILVUS_COLLECTION`
 

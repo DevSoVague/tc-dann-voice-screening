@@ -101,37 +101,38 @@ TASK_BATTERIES = {
 
 AUDIT_FLAGS_STATIC = {
     "Structural / Motor": [
-        ("ok",    "Parkinson's: model exceeds confounder baseline by > 0.10 -- acoustic signal likely"),
-        ("amber", "VF Paralysis: sex gap detected (Female 0.96 vs Male 0.65) -- subgroup instability"),
-        ("ok",    "Protocol B gap < 0.10 for all structural diseases"),
+        ("ok",    "Parkinson's: model clears the confounder-baseline margin -- acoustic signal likely"),
+        ("amber", "VF Paralysis: sex gap flagged by the subgroup audit -- subgroup instability"),
+        ("ok",    "Protocol B gap within threshold for the structural diseases checked"),
     ],
     "Laryngeal / Vocal": [
-        ("warn",  "Chronic Cough: confounder baseline within 0.08 AUROC -- shortcut not ruled out"),
-        ("amber", "Protocol B gap = 0.455 for chronic cough -- large curated-cohort dependency"),
-        ("ok",    "MTD, Benign Lesions: acoustic signal present -- confounder gap > 0.10"),
+        ("warn",  "Chronic Cough: flagged by the confounder audit as possibly shortcut-driven"),
+        ("amber", "Chronic Cough: large Protocol A vs B gap -- curated-cohort dependency"),
+        ("ok",    "MTD, Benign Lesions: acoustic signal present -- clears the confounder margin"),
     ],
     "Psychiatric / Cognitive": [
-        ("warn",  "Depression: confounder baseline within 0.08 AUROC -- shortcut not ruled out"),
-        ("warn",  "Cognitive Impairment: all test positives from Canada -- geographic leakage possible"),
-        ("warn",  "ADHD Protocol B AUROC [0.413, 0.756] -- entirely below fair-protocol value"),
+        ("warn",  "Depression: flagged by the confounder audit as possibly shortcut-driven"),
+        ("warn",  "Cognitive Impairment: all test positives from one site -- geographic leakage possible"),
+        ("warn",  "ADHD: unified-screening performance falls well below the task-specific protocol"),
         ("amber", "Psychiatric labels require additional validation beyond acoustic AUROC (Rec. 5.5)"),
     ],
 }
 
+# (disease, subgroup, status) -- status from the demographic stratification audit
 SUBGROUP_DATA = {
     "Structural / Motor": [
-        ("Parkinson's","41-55","0.91","ok"),("Parkinson's","56-70","0.98","ok"),
-        ("Parkinson's","71+","0.69","warn"),("VF Paralysis","Female","0.96","ok"),
-        ("VF Paralysis","Male","0.65","warn"),
+        ("Parkinson's","41-55","ok"),("Parkinson's","56-70","ok"),
+        ("Parkinson's","71+","warn"),("VF Paralysis","Female","ok"),
+        ("VF Paralysis","Male","warn"),
     ],
     "Laryngeal / Vocal": [
-        ("Chronic Cough","41-55","0.98","ok"),("Chronic Cough","56-70","0.84","ok"),
-        ("MTD","Female","0.84","ok"),("MTD","Male","0.99","ok"),
+        ("Chronic Cough","41-55","ok"),("Chronic Cough","56-70","ok"),
+        ("MTD","Female","ok"),("MTD","Male","ok"),
     ],
     "Psychiatric / Cognitive": [
-        ("Depression","56-70","1.00","ok"),("Depression","71+","0.31","warn"),
-        ("PTSD","Female","0.53","warn"),("PTSD","Male","0.83","ok"),
-        ("Psych Hist","71+","0.19","warn"),("ADHD","all","0.58","warn"),
+        ("Depression","56-70","ok"),("Depression","71+","warn"),
+        ("PTSD","Female","warn"),("PTSD","Male","ok"),
+        ("Psych Hist","71+","warn"),("ADHD","all","warn"),
     ],
 }
 
@@ -141,15 +142,16 @@ DEPLOYMENT_GATES = [
     ("Gate 2","Confounder Separation","Acoustic model outperforms non-acoustic baseline by >= 0.10.",
      None,"Fails for Cognitive Impairment and Parkinson's; passes for structural diseases"),
     ("Gate 3","Subgroup Uniformity","No demographic subgroup < 0.65 AUROC.",
-     None,"Fails for psychiatric_history (71+: 0.189), depression (71+: 0.307), PTSD (F: 0.533)"),
+     None,"Fails for psychiatric_history (71+), depression (71+), PTSD (female subgroup)"),
     ("Gate 4","Protocol Stability","Unified screening AUROC within 0.10 of task-specific binary.",
-     None,"Fails for chronic_cough (-0.455), ADHD (-0.370), depression (-0.334)"),
+     None,"Fails for chronic_cough, ADHD, depression"),
 ]
 
+# (disease, gap_flagged) -- True when the Protocol A vs B gap exceeds the 0.10 threshold
 PROTO_DATA = {
-    "Structural / Motor":      [("Parkinson's",0.977,0.883,-0.094),("Airway Stenosis",0.985,0.909,-0.077)],
-    "Laryngeal / Vocal":       [("Chronic Cough",0.926,0.470,-0.455),("MTD",0.956,0.773,-0.184)],
-    "Psychiatric / Cognitive": [("ADHD",0.953,0.583,-0.370),("Depression",0.961,0.626,-0.334),("PTSD",0.961,0.687,-0.274)],
+    "Structural / Motor":      [("Parkinson's",False),("Airway Stenosis",False)],
+    "Laryngeal / Vocal":       [("Chronic Cough",True),("MTD",True)],
+    "Psychiatric / Cognitive": [("ADHD",True),("Depression",True),("PTSD",True)],
 }
 
 # ── Multi-agent prompts (from noapi_multiagent1.json) ─────────────────────────
@@ -1582,18 +1584,10 @@ def mock_results(fam: str) -> list:
     """
     Fallback results when the API is offline.
     Includes confounder_prob / confounder_percent / gap fields matching the v2 API response,
-    using heuristic AUROC values from the audit report (confounder_baseline.py).
+    using a neutral confounder placeholder (no audit values are bundled).
     """
-    # Confounder heuristic AUROC proxies (from AUDIT_REPORT_AUROC in confounder_baseline.py)
-    _CONF = {
-        "parkinsons": 0.934, "airway_stenosis": 0.775, "laryngeal_dystonia": 0.800,
-        "vf_paralysis": 0.796, "chronic_cough": 0.740, "mtd": 0.740,
-        "benign_lesions": 0.770, "glottic_insuff": 0.590,
-        "depression": 0.777, "ptsd": 0.785, "adhd": 0.729, "bipolar": 0.750,
-        "cognitive_impairment": 0.958, "psychiatric_history": 0.740,
-        "anxiety": 0.750, "precancerous": 0.830, "als": 0.500,
-        "copd_asthma": 0.670, "laryngitis": 0.750, "laryngeal_cancer": 0.500,
-    }
+    # Neutral confounder placeholder for offline demo mode (no audit values bundled)
+    _CONF: dict = {}
     def _r(task, prob):
         cp = _CONF.get(task, 0.6)
         return {
@@ -2569,9 +2563,9 @@ def stage_intake():
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("**Why we collect each field**")
         for title, desc in [
-            ("Age + Sex", "Dominant confounders for psychiatric labels -- age alone achieves 0.69 AUROC for PTSD. Logged for mandatory demographic stratification audit (Rec. 5.3)."),
+            ("Age + Sex", "Dominant confounders for psychiatric labels -- the confounder audit flags age alone as a strong predictor of PTSD. Logged for mandatory demographic stratification audit (Rec. 5.3)."),
             ("Country / Ethnicity", "Geographic leakage: cognitive impairment is Canada-only in B2AI v3. Country flags potential site-identity shortcuts before scoring."),
-            ("Task Histogram Proxy", "Task histogram alone achieves 0.929 AUROC for cognitive impairment. Standardized task assignment breaks this shortcut."),
+            ("Task Histogram Proxy", "The confounder audit flags the task histogram alone as a strong predictor of cognitive impairment. Standardized task assignment breaks this shortcut."),
             ("Informed Consent", "Legally required before audio capture. Consent flag stored in audit log alongside every prediction."),
         ]:
             st.markdown(f"""
@@ -3518,7 +3512,7 @@ def stage_results():
         st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
 
         # ── Subgroup AUROC (inline styles) ──────────────────────────────────
-        with st.expander("Demographic Subgroup AUROC (Rec. 5.3)", expanded=False):
+        with st.expander("Demographic Subgroup Audit (Rec. 5.3)", expanded=False):
             _sg_rows = SUBGROUP_DATA.get(fam, [])
             if _sg_rows:
                 _tbl = (
@@ -3527,11 +3521,12 @@ def stage_results():
                     + "".join(
                         f'<th style="background:#f9fafb;color:#374151;font-weight:600;'
                         f'padding:0.4rem 0.6rem;text-align:left;border-bottom:1px solid #e5e7eb;">{h}</th>'
-                        for h in ("Disease", "Subgroup", "AUROC")
+                        for h in ("Disease", "Subgroup", "Audit status")
                     )
                     + '</tr></thead><tbody>'
                 )
-                for _dis, _grp, _auc, _sta in _sg_rows:
+                for _dis, _grp, _sta in _sg_rows:
+                    _auc = {"ok":"OK","warn":"Flagged"}.get(_sta,"Check")
                     _c = {"ok":"#059669","warn":"#dc2626"}.get(_sta,"#d97706")
                     _tbl += (
                         f'<tr>'
@@ -3544,13 +3539,13 @@ def stage_results():
                 st.markdown(_tbl, unsafe_allow_html=True)
 
         with st.expander("Protocol A vs B Gap", expanded=False):
-            for _dis, _pA, _pB, _gap in PROTO_DATA.get(fam, []):
-                _clr = "#dc2626" if abs(_gap) > 0.10 else "#059669"
+            for _dis, _flagged in PROTO_DATA.get(fam, []):
+                _clr = "#dc2626" if _flagged else "#059669"
+                _lbl = "Gap above 0.10 threshold" if _flagged else "Within 0.10 threshold"
                 st.markdown(
                     f'<div style="font-size:0.82rem;margin-bottom:0.4rem;">'
                     f'<strong style="color:#111827;">{_dis}</strong> &nbsp;'
-                    f'<span style="color:#6b7280;">A: {_pA:.3f} &nbsp; B: {_pB:.3f}</span> &nbsp;'
-                    f'<span style="font-weight:700;color:{_clr};">Δ {_gap:+.3f}</span></div>',
+                    f'<span style="font-weight:700;color:{_clr};">{_lbl}</span></div>',
                     unsafe_allow_html=True,
                 )
 

@@ -8,14 +8,14 @@ Design rationale (each choice maps to a finding in the Section 2 audit):
    the MARVEL gap. Fewer branches -> less fusion conflict.
 
 2. Explicit task-ID embedding as a fusion token.
-   Audit Section 2.2: task histogram alone reaches 0.93 AUROC on cognitive
-   impairment and 0.94 on Parkinson's. If task is a GIVEN input rather than
+   Audit Section 2.2: the task histogram alone is a strong predictor of
+   cognitive impairment and Parkinson's. If task is a GIVEN input rather than
    something implicitly learnable from which-recordings-exist, the model
    cannot use it as a label proxy. The disease head is task-conditional.
 
 3. Gradient reversal adversaries on site, age bucket, sex.
-   Audit Section 2.4: country gap (Parkinson's Canada 0.487 vs USA 0.913),
-   age gap (psych_history 71+ = 0.189), sex gap (PTSD F=0.533 vs M=0.832).
+   Audit Section 2.4: country gap (Parkinson's, Canada vs USA), age gap
+   (psych_history, 71+), sex gap (PTSD, female vs male).
    DANN (Ganin & Lempitsky 2015) actively strips these from the shared
    representation.
 

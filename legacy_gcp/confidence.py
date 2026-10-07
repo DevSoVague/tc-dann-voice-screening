@@ -17,7 +17,7 @@ A prediction is only returned when ALL four conditions hold:
   A3 Subgroup support:
          training set has >= n_support positives in the input's
          (disease x site x age x sex) cell
-     (avoids the 71+ psychiatric_history = 0.189 failure mode)
+     (avoids the 71+ psychiatric_history failure mode)
 
   A4 Conformal support:
          non-conformity score within subgroup calibration quantile
